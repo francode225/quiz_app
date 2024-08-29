@@ -27,7 +27,7 @@
         </form>
       </transition>
       <div v-else class="score">
-        <div class="confetti">
+        <div v-if="message === 'Félicitations 😀'" class="confetti">
           <div class="confetti-piece"></div>
           <div class="confetti-piece"></div>
           <div class="confetti-piece"></div>
@@ -107,6 +107,11 @@ form {
 .question {
   flex: 1;
   padding: 1rem;
+  overflow-y: scroll;
+}
+
+.question::-webkit-scrollbar {
+  display: none;
 }
 
 form > button {
@@ -398,17 +403,57 @@ const translateText = async (
   }
 }
 
+const CACHE_KEY = 'questions_cache'
+const CACHE_EXPIRATION_KEY = 'questions_cache_expiration'
+
+// fonction pour sauvegarder les questions dans le cache
+const enregistrerCache = (questions: QuestionType[]) => {
+  localStorage.setItem(CACHE_KEY, JSON.stringify(questions))
+  localStorage.setItem(CACHE_EXPIRATION_KEY, Date.now().toString())
+}
+
+// fonction pour charger le cache
+const chargerQuestionsCache = (): QuestionType[] | null => {
+  const questionsDuCache = localStorage.getItem(CACHE_KEY) as string
+  const expirationCache: string | null = localStorage.getItem(CACHE_EXPIRATION_KEY)
+
+  if (questionsCache && expirationCache) {
+    const tempsExpiration: number = parseInt(expirationCache, 10)
+    const maintenant: number = Date.now()
+
+    if (CACHE_DURATION > tempsExpiration - maintenant) {
+      return JSON.parse(questionsDuCache)
+    }
+  }
+  return null
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  localStorage.removeItem('questions_cache')
+  localStorage.removeItem('questions_cache_expiration')
+})
+// Charger les questions traduites en fr depuis l'API
 const fetchAndTranslateQuestions = async (): Promise<QuestionType[]> => {
+  const QuestionsDuCache = chargerQuestionsCache()
+
+  if (QuestionsDuCache) {
+    console.log('Chargement des questions depuis le cache')
+    questions.value = QuestionsDuCache
+    return QuestionsDuCache
+  }
+
   try {
-    const response = await fetch('https://opentdb.com/api.php?amount=2&category=18&type=multiple')
+    const response = await fetch(
+      'https://opentdb.com/api.php?amount=5&category=11&difficulty=easy&type=multiple'
+    )
     const data = await response.json()
 
     const translatedQuestions = await Promise.all(
-      data.results.map(async (q) => {
+      data.results.map(async (q: any) => {
         const question = await translateText(q.question)
         const correctAnswer = await translateText(q.correct_answer)
         const incorrectAnswers = await Promise.all(
-          q.incorrect_answers.map((answer) => translateText(answer))
+          q.incorrect_answers.map((answer: any) => translateText(answer))
         )
 
         return {
@@ -421,6 +466,9 @@ const fetchAndTranslateQuestions = async (): Promise<QuestionType[]> => {
     )
 
     questions.value = translatedQuestions
+    // Sauvegarder les questions traduites dans le cache
+    enregistrerCache(questions.value)
+
     return translatedQuestions
   } catch (error) {
     console.error('Erreur lors de la récupération ou de la traduction des questions :', error)
@@ -434,11 +482,14 @@ fetchAndTranslateQuestions().then((translatedQuestions) => {
 
 // Commencer le quiz
 const debutQuiz = ref<boolean>(false)
+
 const commercerQuiz = () => {
   debutQuiz.value = true
   selectedQuestion.value = questions.value[0]
   compteurQuestion.value = 0
   montrerScore.value = false
+  score.value = 0
+  message.value = ''
   resetTimer()
 }
 
@@ -447,17 +498,22 @@ const compteurQuestion = ref<number>(0)
 const reponse = ref<string>('')
 const selectedQuestion = ref<QuestionType | null>(null)
 const montrerScore = ref<boolean>(false)
-let message = ref<string>('')
 
-// Changer de question
+// afficher le bon message par rapport au score
+let message = ref<string>('')
+const messageScore = () => {
+  message.value =
+    score.value >= (questions.value.length * 10) / 2 ? 'Félicitations 😀' : 'Dommage 😞'
+  console.log(questions.value.length, (questions.value.length * 10) / 2)
+}
+// Passer la question suivante
 const passerQuestionSuivante = () => {
   if (compteurQuestion.value < questions.value.length - 1) {
     compteurQuestion.value++
     selectedQuestion.value = questions.value[compteurQuestion.value]
   } else {
     montrerScore.value = true
-    message.value =
-      score.value >= (questions.value.length * 10) / 2 ? 'Félicitations 😀' : 'Dommage 😞'
+    messageScore()
     resetTimer()
   }
 }
